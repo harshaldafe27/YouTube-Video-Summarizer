@@ -1,26 +1,18 @@
 /**
  * video.service.js
  *
- * Handles audio extraction from YouTube using yt-dlp,
- * then normalises the audio to 16 kHz mono WAV using FFmpeg.
- *
- * NOTE: env vars are read inside functions (not at module load time)
- * so dotenv has always finished loading before they are accessed.
+ * Handles video metadata retrieval and audio processing.
+ * Upgraded to use YouTube oEmbed for instant, binary-free title fetching.
  */
 
-import {
-    execFile
-} from 'child_process';
-import {
-    promisify
-} from 'util';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
 import logger from '../utils/logger.js';
+import { extractVideoId } from '../utils/youtube.js';
 
 const execFileAsync = promisify(execFile);
-
-/* ── Helpers ────────────────────────────────────────────────────────────── */
 
 function getYtdlpPath() {
     return process.env.YTDLP_PATH || 'yt-dlp';
@@ -37,47 +29,83 @@ function getTempDir() {
 function ensureTempDir() {
     const dir = getTempDir();
     if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, {
-            recursive: true
-        });
+        fs.mkdirSync(dir, { recursive: true });
     }
 }
 
 /**
- * Returns the DIRECTORY containing ffmpeg.exe.
- * yt-dlp --ffmpeg-location expects a folder, not the full exe path.
- * Always returns a value so --ffmpeg-location is always passed.
- */
-function getFfmpegDir() {
-    const ffmpegPath = getFfmpegPath();
-    // If it's a full path (contains a separator), return its directory
-    if (ffmpegPath.includes(path.sep) || ffmpegPath.includes('/')) {
-        return path.dirname(ffmpegPath);
-    }
-    // It's just "ffmpeg" — resolve it from PATH using 'where' on Windows
-    // Return '.' as fallback so yt-dlp still searches PATH
-    return null;
-}
-
-/* ── Public API ─────────────────────────────────────────────────────────── */
-
-/**
- * Downloads the best audio stream from a YouTube URL using yt-dlp.
+ * Fetches the video title using YouTube's oEmbed API (fast, HTTP-based, no binaries needed).
+ * Falls back to yt-dlp or video ID.
  *
- * @param {string} videoId
  * @param {string} url
- * @returns {Promise<string>} Path to the downloaded audio file
+ * @returns {Promise<string>}
+ */
+export async function fetchVideoTitle(url) {
+    const videoId = extractVideoId(url);
+
+    // 1. Try YouTube oEmbed API
+    try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+        const res = await fetch(oembedUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            signal: AbortSignal.timeout(6000),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.title) {
+                logger.info(`[video.service] oEmbed title found: "${data.title}"`);
+                return data.title.trim();
+            }
+        }
+    } catch (err) {
+        logger.warn(`[video.service] oEmbed fetch failed: ${err.message}`);
+    }
+
+    // 2. Try HTML scraping fallback
+    try {
+        const htmlRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            signal: AbortSignal.timeout(6000),
+        });
+        if (htmlRes.ok) {
+            const html = await htmlRes.text();
+            const ogTitleMatch = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i)
+                || html.match(/<title>([^<]+)<\/title>/i);
+            if (ogTitleMatch && ogTitleMatch[1]) {
+                const title = ogTitleMatch[1].replace(/ - YouTube$/, '').trim();
+                logger.info(`[video.service] HTML title found: "${title}"`);
+                return title;
+            }
+        }
+    } catch (err) {
+        logger.warn(`[video.service] HTML title fetch failed: ${err.message}`);
+    }
+
+    // 3. Fallback to yt-dlp if installed
+    try {
+        const { stdout } = await execFileAsync(
+            getYtdlpPath(),
+            ['--get-title', '--no-warnings', '--quiet', url],
+            { timeout: 10000 }
+        );
+        if (stdout && stdout.trim()) {
+            return stdout.trim();
+        }
+    } catch {
+        // ignore
+    }
+
+    return `YouTube Video (${videoId || 'Unknown'})`;
+}
+
+/**
+ * Downloads audio using yt-dlp if available.
  */
 export async function downloadAudio(videoId, url) {
     ensureTempDir();
-
     const YTDLP_PATH = getYtdlpPath();
     const TEMP_DIR = getTempDir();
     const outputTemplate = path.join(TEMP_DIR, `${videoId}.%(ext)s`);
-
-    logger.info(`[video.service] yt-dlp path: ${YTDLP_PATH}`);
-    logger.info(`[video.service] ffmpeg path: ${getFfmpegPath()}`);
-    logger.info(`[video.service] Downloading audio for ${videoId}`);
 
     const args = [
         url,
@@ -90,49 +118,27 @@ export async function downloadAudio(videoId, url) {
         '--quiet',
     ];
 
-    // Always pass --ffmpeg-location so yt-dlp can post-process the audio
-    const ffmpegDir = getFfmpegDir();
-    if (ffmpegDir) {
-        args.push('--ffmpeg-location', ffmpegDir);
-        logger.info(`[video.service] Using --ffmpeg-location: ${ffmpegDir}`);
-    } else {
-        // ffmpeg is just "ffmpeg" in PATH — pass the exe name directly
-        args.push('--ffmpeg-location', getFfmpegPath());
-        logger.info(`[video.service] Using --ffmpeg-location: ${getFfmpegPath()}`);
-    }
-
     try {
-        await execFileAsync(YTDLP_PATH, args, {
-            timeout: 300000
-        });
+        await execFileAsync(YTDLP_PATH, args, { timeout: 120000 });
+        const files = fs.readdirSync(TEMP_DIR).filter((f) => f.startsWith(videoId));
+        if (files.length > 0) {
+            return path.join(TEMP_DIR, files[0]);
+        }
     } catch (err) {
-        throw new Error(`yt-dlp failed: ${err.message}`);
+        logger.warn(`[video.service] yt-dlp audio download skipped: ${err.message}`);
     }
-
-    const files = fs.readdirSync(TEMP_DIR).filter((f) => f.startsWith(videoId));
-    if (files.length === 0) {
-        throw new Error(`yt-dlp produced no output file for videoId ${videoId}`);
-    }
-
-    const rawPath = path.join(TEMP_DIR, files[0]);
-    logger.info(`[video.service] Audio downloaded: ${rawPath}`);
-    return rawPath;
+    return null;
 }
 
 /**
- * Normalises audio to 16 kHz mono WAV using FFmpeg.
- *
- * @param {string} inputPath
- * @param {string} videoId
- * @returns {Promise<string>} Path to the normalised WAV file
+ * Normalises audio to 16 kHz mono WAV using FFmpeg if available.
  */
 export async function normaliseAudio(inputPath, videoId) {
-    ensureTempDir();
+    if (!inputPath || !fs.existsSync(inputPath)) return null;
 
+    ensureTempDir();
     const FFMPEG_PATH = getFfmpegPath();
     const outputPath = path.join(getTempDir(), `${videoId}_norm.wav`);
-
-    logger.info(`[video.service] Normalising audio → ${outputPath}`);
 
     const args = [
         '-y',
@@ -144,51 +150,20 @@ export async function normaliseAudio(inputPath, videoId) {
     ];
 
     try {
-        await execFileAsync(FFMPEG_PATH, args, {
-            timeout: 300000
-        });
+        await execFileAsync(FFMPEG_PATH, args, { timeout: 120000 });
+        return outputPath;
     } catch (err) {
-        throw new Error(`FFmpeg normalisation failed: ${err.message}`);
+        logger.warn(`[video.service] FFmpeg normalisation skipped: ${err.message}`);
+        return null;
     }
-
-    logger.info(`[video.service] Audio normalised: ${outputPath}`);
-    return outputPath;
 }
 
-/**
- * Deletes a file silently.
- * @param {string} filePath
- */
 export function deleteFile(filePath) {
     try {
         if (filePath && fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
-            logger.info(`[video.service] Deleted temp file: ${filePath}`);
         }
     } catch (err) {
         logger.warn(`[video.service] Could not delete ${filePath}: ${err.message}`);
-    }
-}
-
-/**
- * Fetches the video title using yt-dlp --get-title.
- * Returns empty string on failure (non-critical).
- *
- * @param {string} url
- * @returns {Promise<string>}
- */
-export async function fetchVideoTitle(url) {
-    try {
-        const {
-            stdout
-        } = await execFileAsync(
-            getYtdlpPath(),
-            ['--get-title', '--no-warnings', '--quiet', url], {
-                timeout: 30000
-            }
-        );
-        return stdout.trim();
-    } catch {
-        return '';
     }
 }

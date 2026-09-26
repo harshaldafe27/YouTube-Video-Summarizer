@@ -1,9 +1,6 @@
 /**
  * MongoDB Atlas connection via Mongoose.
- * Exports a connect() function called once at server startup.
- *
- * All connection options (ssl, authSource, replicaSet) are already
- * embedded in the MONGODB_URI query string — no need to repeat them here.
+ * If MONGODB_URI is not configured or offline, logs a warning and falls back to in-memory storage.
  */
 
 import mongoose from 'mongoose';
@@ -13,22 +10,29 @@ export async function connectDB() {
     const uri = process.env.MONGODB_URI;
 
     if (!uri) {
-        throw new Error('MONGODB_URI is not defined in environment variables.');
+        logger.warn('[db] MONGODB_URI not configured — running with in-memory storage fallback.');
+        return;
     }
 
     mongoose.connection.on('connected', () =>
-        logger.info('MongoDB Atlas connected.')
+        logger.info('[db] MongoDB connected.')
     );
     mongoose.connection.on('error', (err) =>
-        logger.error(`MongoDB connection error: ${err.message}`)
+        logger.error(`[db] MongoDB connection error: ${err.message}`)
     );
     mongoose.connection.on('disconnected', () =>
-        logger.warn('MongoDB disconnected.')
+        logger.warn('[db] MongoDB disconnected.')
     );
 
-    await mongoose.connect(uri, {
-        serverSelectionTimeoutMS: 30000, // 30s to find a replica set member
-        socketTimeoutMS: 60000, // 60s socket idle timeout
-        connectTimeoutMS: 30000, // 30s initial TCP connect timeout
-    });
+    try {
+        mongoose.set('bufferCommands', false); // Fail fast, don't hang requests
+        await mongoose.connect(uri, {
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 15000,
+            connectTimeoutMS: 5000,
+        });
+        logger.info('[db] MongoDB connected successfully.');
+    } catch (err) {
+        logger.warn(`[db] Could not connect to MongoDB: ${err.message}. Running with in-memory storage.`);
+    }
 }

@@ -1,0 +1,7 @@
+{
+  "name": "YVS · YouTube Video Summarizer",
+  "description": "YouTube Video Summarizer - Extract insights and transcripts from YouTube videos using AI.",
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
