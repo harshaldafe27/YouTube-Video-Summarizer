@@ -4,7 +4,7 @@ import './App.css'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const API_BASE = '/api'          // proxied to http://localhost:5000 by Vite
-const POLL_INTERVAL_MS = 3000   // poll every 3 seconds while processing
+const POLL_INTERVAL_MS = 1200   // poll every 1.2 seconds for snappy response
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function isValidYouTubeUrl(url) {
@@ -123,6 +123,21 @@ function SummaryCard({ summary, title, videoId, onReset, url }) {
       '',
       '=== KEY TAKEAWAYS ===',
       ...(summary.takeaways || []).map((t) => `• ${t}`),
+      ...(summary.tips?.length ? [
+        '',
+        '=== SPEAKER TIPS & ADVICE ===',
+        ...summary.tips.map((tip) => `💡 ${tip}`),
+      ] : []),
+      ...(summary.resources?.length ? [
+        '',
+        '=== SUGGESTED RESOURCES & WEBSITES ===',
+        ...summary.resources.map((r) => `🔗 ${r}`),
+      ] : []),
+      ...(summary.roadmap?.length ? [
+        '',
+        '=== ROADMAP & MILESTONES ===',
+        ...summary.roadmap.map((step, idx) => `${idx + 1}. ${step}`),
+      ] : []),
     ].filter(Boolean).join('\n')
 
     navigator.clipboard.writeText(textParts).then(() => {
@@ -198,6 +213,68 @@ function SummaryCard({ summary, title, videoId, onReset, url }) {
                 <li key={i}>{t}</li>
               ))}
             </ul>
+          </section>
+        )}
+
+        {/* Speaker Tips & Advice */}
+        {summary.tips?.length > 0 && (
+          <section className="summary-section">
+            <h3 className="section-heading">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 1.5a4.5 4.5 0 0 0-4.5 4.5c0 1.8 1.1 3.4 2.5 4.1v1.4a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-1.4c1.4-.7 2.5-2.3 2.5-4.1A4.5 4.5 0 0 0 8 1.5Z" stroke="var(--accent)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.5 14.5h3" stroke="var(--accent)" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              Speaker Tips &amp; Advice
+            </h3>
+            <ul className="tips-list">
+              {summary.tips.map((tip, i) => (
+                <li key={i}>
+                  <span className="tip-badge">Tip {i + 1}</span>
+                  <span className="tip-text">{tip}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Suggested Resources & Websites */}
+        {summary.resources?.length > 0 && (
+          <section className="summary-section">
+            <h3 className="section-heading">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.5" stroke="var(--accent)" strokeWidth="1.3"/>
+                <path d="M1.5 8h13M8 1.5a10 10 0 0 1 0 13 10 10 0 0 1 0-13" stroke="var(--accent)" strokeWidth="1.3"/>
+              </svg>
+              Suggested Resources &amp; Websites
+            </h3>
+            <div className="resources-grid">
+              {summary.resources.map((resource, i) => (
+                <div key={i} className="resource-card">
+                  <span className="resource-icon" aria-hidden="true">🔗</span>
+                  <span className="resource-title">{resource}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Roadmap & Milestones */}
+        {summary.roadmap?.length > 0 && (
+          <section className="summary-section">
+            <h3 className="section-heading">
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M2.5 13.5v-11M2.5 3.5h9l-2 3.5 2 3.5h-9" stroke="var(--accent)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Roadmap &amp; Milestones
+            </h3>
+            <ol className="roadmap-stepper">
+              {summary.roadmap.map((step, i) => (
+                <li key={i} className="roadmap-step-item">
+                  <span className="roadmap-step-num">{i + 1}</span>
+                  <span className="roadmap-step-desc">{step}</span>
+                </li>
+              ))}
+            </ol>
           </section>
         )}
       </div>

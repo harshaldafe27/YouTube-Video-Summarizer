@@ -11,7 +11,7 @@ import { extractVideoId, canonicalUrl } from '../utils/youtube.js';
 import { fetchVideoTitle } from '../services/video.service.js';
 import { fetchTranscript } from '../services/transcription.service.js';
 import { chunkTranscript } from '../utils/chunker.js';
-import { mapSummarize, reduceSummarize, summarizeDirectly } from '../services/summarization.service.js';
+import { mapSummarize, reduceSummarize, summarizeDirectly, summarizeTranscriptHolistic } from '../services/summarization.service.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -20,35 +20,36 @@ import logger from '../utils/logger.js';
 async function processVideoJob({ videoId, url, jobId }) {
     logger.info(`[pipeline] Starting job ${jobId} for video: ${videoId}`);
     try {
-        // Step 1: Title (progress 10)
-        await Video.findOneAndUpdate({ jobId }, { progress: 10 });
-        const title = await fetchVideoTitle(url);
-        await Video.findOneAndUpdate({ jobId }, { title, progress: 25 });
-        logger.info(`[pipeline] Video title: "${title}"`);
+        // Step 1: Fetch title and transcript in parallel for maximum speed
+        await Video.findOneAndUpdate({ jobId }, { progress: 15 });
+        const [title, transcript] = await Promise.all([
+            fetchVideoTitle(url).catch(() => `YouTube Video (${videoId})`),
+            fetchTranscript(videoId).catch(() => null),
+        ]);
 
-        // Step 2: Fetch Transcript (progress 40)
-        await Video.findOneAndUpdate({ jobId }, { progress: 40 });
-        const transcript = await fetchTranscript(videoId);
+        await Video.findOneAndUpdate({ jobId }, { title, transcript: transcript || '', progress: 45 });
+        logger.info(`[pipeline] Metadata fetched — Title: "${title}", Transcript: ${transcript ? transcript.length : 0} chars`);
 
         let summary;
         if (transcript && transcript.trim().length > 40) {
-            await Video.findOneAndUpdate({ jobId }, { transcript, progress: 55 });
-
-            // Step 3: Chunk transcript (progress 65)
-            const chunks = chunkTranscript(transcript);
-            await Video.findOneAndUpdate({ jobId }, { chunks, progress: 65 });
-
-            // Step 4: Map summarize (progress 85)
-            logger.info(`[pipeline] Summarizing ${chunks.length} chunks...`);
-            const chunkSummaries = await mapSummarize(chunks);
-            await Video.findOneAndUpdate({ jobId }, { chunkSummaries, progress: 85 });
-
-            // Step 5: Reduce summarize (progress 100)
-            logger.info('[pipeline] Synthesizing final structured summary...');
-            summary = await reduceSummarize(chunkSummaries, title, transcript.slice(0, 800));
+            // For transcripts under 80k chars (~20k tokens), perform high-fidelity single-pass summarization
+            if (transcript.length <= 80000) {
+                await Video.findOneAndUpdate({ jobId }, { progress: 70 });
+                logger.info(`[pipeline] Generating fast holistic summary (${transcript.length} chars)...`);
+                summary = await summarizeTranscriptHolistic({ transcript, videoTitle: title, url });
+            } else {
+                // For mega-long transcripts (2+ hour videos), chunk with 8000 token boundaries
+                await Video.findOneAndUpdate({ jobId }, { progress: 60 });
+                const chunks = chunkTranscript(transcript, 8000);
+                await Video.findOneAndUpdate({ jobId }, { chunks, progress: 70 });
+                logger.info(`[pipeline] Summarizing ${chunks.length} large chunks...`);
+                const chunkSummaries = await mapSummarize(chunks);
+                await Video.findOneAndUpdate({ jobId }, { chunkSummaries, progress: 85 });
+                summary = await reduceSummarize(chunkSummaries, title, transcript.slice(0, 1000));
+            }
         } else {
-            // Direct Gemini video summarization fallback
-            await Video.findOneAndUpdate({ jobId }, { progress: 70 });
+            // Direct Gemini video summarization fallback with title and URL
+            await Video.findOneAndUpdate({ jobId }, { progress: 75 });
             logger.info(`[pipeline] Generating direct AI summary for: ${title}`);
             summary = await summarizeDirectly({ videoTitle: title, url, videoId });
         }

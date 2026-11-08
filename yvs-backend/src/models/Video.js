@@ -22,6 +22,18 @@ const summarySchema = new mongoose.Schema({
         type: [String],
         default: []
     },
+    tips: {
+        type: [String],
+        default: []
+    },
+    resources: {
+        type: [String],
+        default: []
+    },
+    roadmap: {
+        type: [String],
+        default: []
+    },
 }, {
     _id: false
 });
@@ -134,7 +146,7 @@ const Video = {
             transcript: data.transcript || '',
             chunks: data.chunks || [],
             chunkSummaries: data.chunkSummaries || [],
-            summary: data.summary || { title: '', overview: '', keyPoints: [], takeaways: [] },
+            summary: data.summary || { title: '', overview: '', keyPoints: [], takeaways: [], tips: [], resources: [], roadmap: [] },
             status: data.status || 'processing',
             progress: data.progress || 0,
             errorMessage: data.errorMessage || null,
