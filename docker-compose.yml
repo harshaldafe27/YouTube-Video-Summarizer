@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  yvs-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - MONGODB_URI=${MONGODB_URI:-}
+    restart: unless-stopped

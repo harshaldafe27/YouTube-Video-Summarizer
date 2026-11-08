@@ -56,7 +56,11 @@ import logger from '../utils/logger.js';
 
 /* ── Connect to DB before processing any jobs ───────────────────────────── */
 await connectDB();
-logger.info('[worker] Connected to MongoDB. Worker is ready.');
+if (mongoose.connection.readyState === 1) {
+    logger.info('[worker] Connected to MongoDB. Worker is ready.');
+} else {
+    logger.info('[worker] In-memory storage active. Worker is ready.');
+}
 logger.info(`[worker] SUMMARIZATION_BACKEND = ${process.env.SUMMARIZATION_BACKEND}`);
 logger.info(`[worker] OLLAMA_HOST = ${process.env.OLLAMA_HOST || 'http://localhost:11434'}`);
 

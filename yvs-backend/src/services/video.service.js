@@ -9,6 +9,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import logger from '../utils/logger.js';
 import { extractVideoId } from '../utils/youtube.js';
 
@@ -23,7 +24,7 @@ function getFfmpegPath() {
 }
 
 function getTempDir() {
-    return process.env.TEMP_DIR || './tmp';
+    return process.env.TEMP_DIR || path.join(os.tmpdir(), 'yvs-temp');
 }
 
 function ensureTempDir() {

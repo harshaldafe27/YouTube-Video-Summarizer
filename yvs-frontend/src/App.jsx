@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import RecentSummaries, { saveRecentSummary } from './RecentSummaries'
 import './App.css'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -107,7 +108,31 @@ function ErrorCard({ message, onRetry, onReset }) {
 }
 
 /** Final summary card */
-function SummaryCard({ summary, title, videoId, onReset }) {
+function SummaryCard({ summary, title, videoId, onReset, url }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    const textParts = [
+      summary.title || title || 'YouTube Video Summary',
+      '',
+      '=== OVERVIEW ===',
+      summary.overview || '',
+      '',
+      '=== KEY POINTS ===',
+      ...(summary.keyPoints || []).map((p) => `• ${p}`),
+      '',
+      '=== KEY TAKEAWAYS ===',
+      ...(summary.takeaways || []).map((t) => `• ${t}`),
+    ].filter(Boolean).join('\n')
+
+    navigator.clipboard.writeText(textParts).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  const ytUrl = url || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : null)
+
   return (
     <div className="card summary-card">
       {videoId && (
@@ -177,9 +202,53 @@ function SummaryCard({ summary, title, videoId, onReset }) {
         )}
       </div>
 
-      <button className="btn-ghost" onClick={onReset}>
-        ← Summarize another video
-      </button>
+      <div className="summary-actions-bar">
+        <div className="summary-actions-left">
+          <button
+            type="button"
+            className={`btn-action-pill ${copied ? 'copied' : ''}`}
+            onClick={handleCopy}
+            title="Copy summary text to clipboard"
+          >
+            {copied ? (
+              <>
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Copied!
+              </>
+            ) : (
+              <>
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                  <path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+                Copy Summary
+              </>
+            )}
+          </button>
+
+          {ytUrl && (
+            <a
+              href={ytUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-action-pill"
+              title="Open video on YouTube in a new tab"
+            >
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M12 4v4m0-4H8m4 0L6 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                <rect x="2" y="5" width="8" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+              </svg>
+              Watch on YouTube ↗
+            </a>
+          )}
+        </div>
+
+        <button type="button" className="btn-ghost" onClick={onReset}>
+          ← Summarize another video
+        </button>
+      </div>
     </div>
   )
 }
@@ -219,6 +288,12 @@ export default function App() {
         setSummary(data.summary)
         setTitle(data.title || '')
         setPhase('completed')
+        saveRecentSummary({
+          videoId: data.videoId || videoId,
+          url: data.url || url,
+          title: data.title || (data.summary && data.summary.title),
+          summary: data.summary,
+        })
       } else if (data.status === 'failed') {
         stopPolling()
         setApiError(data.errorMessage || 'Processing failed.')
@@ -232,7 +307,7 @@ export default function App() {
     } catch {
       // network hiccup — keep polling, don't abort
     }
-  }, [stopPolling])
+  }, [stopPolling, videoId, url])
 
   // ── Start polling when jobId is set ─────────────────────────────────────────
   useEffect(() => {
@@ -282,6 +357,12 @@ export default function App() {
         setSummary(data.summary)
         setTitle(data.title || '')
         setPhase('completed')
+        saveRecentSummary({
+          videoId: data.videoId || vid,
+          url: url,
+          title: data.title || (data.summary && data.summary.title),
+          summary: data.summary,
+        })
         return
       }
 
@@ -293,6 +374,19 @@ export default function App() {
       setApiError('Could not reach the backend. Make sure it is running on port 5000.')
       setPhase('failed')
     }
+  }
+
+  // ── Select a recent summary ────────────────────────────────────────────────
+  function handleSelectRecent(item) {
+    stopPolling()
+    setSummary(item.summary)
+    setTitle(item.title || '')
+    setVideoId(item.videoId)
+    setUrl(item.url || `https://www.youtube.com/watch?v=${item.videoId}`)
+    setPhase('completed')
+    setApiError('')
+    setInputError('')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   // ── Reset ────────────────────────────────────────────────────────────────────
@@ -327,9 +421,14 @@ export default function App() {
       <header className="header">
         <div className="logo-mark">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <rect x="2" y="5" width="20" height="14" rx="3" fill="var(--accent)" opacity="0.15" />
-            <rect x="2" y="5" width="20" height="14" rx="3" stroke="var(--accent)" strokeWidth="1.5" />
-            <polygon points="10,9 16,12 10,15" fill="var(--accent)" />
+            <defs>
+              <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#fbbf24" />
+                <stop offset="100%" stopColor="#ea580c" />
+              </linearGradient>
+            </defs>
+            <rect x="2" y="5" width="20" height="14" rx="3.5" fill="url(#logo-grad)" />
+            <polygon points="10,8.5 16,12 10,15.5" fill="#ffffff" />
           </svg>
         </div>
         <span className="logo-text">YVS</span>
@@ -401,12 +500,19 @@ export default function App() {
 
         {/* ── COMPLETED: show summary ── */}
         {phase === 'completed' && summary && (
-          <SummaryCard
-            summary={summary}
-            title={title}
-            videoId={videoId}
-            onReset={handleReset}
-          />
+          <>
+            <SummaryCard
+              summary={summary}
+              title={title}
+              videoId={videoId}
+              url={url}
+              onReset={handleReset}
+            />
+            <RecentSummaries
+              onSelect={handleSelectRecent}
+              currentVideoId={videoId}
+            />
+          </>
         )}
 
         {/* ── FAILED: show error ── */}
@@ -415,6 +521,14 @@ export default function App() {
             message={apiError}
             onRetry={handleRetry}
             onReset={handleReset}
+          />
+        )}
+
+        {/* ── Recent Summaries on idle ── */}
+        {phase === 'idle' && (
+          <RecentSummaries
+            onSelect={handleSelectRecent}
+            currentVideoId={videoId}
           />
         )}
 

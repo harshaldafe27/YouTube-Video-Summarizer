@@ -13,8 +13,10 @@ import { connectDB } from './yvs-backend/src/config/db.js';
 import logger from './yvs-backend/src/utils/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = 3000;
 const isDev = process.env.NODE_ENV !== 'production';
+// In dev (AI Studio), default to 3000. In production, adapt to cloud-provided PORT (Render, Cloud Run, etc.)
+const PORT = parseInt(process.env.APP_PORT || (isDev ? '3000' : (process.env.PORT || '3000')), 10);
+
 
 async function bootstrap() {
     // Non-blocking database initialization with in-memory fallback
