@@ -27,7 +27,7 @@ const summarySchema = new mongoose.Schema({
         default: []
     },
     resources: {
-        type: [String],
+        type: [mongoose.Schema.Types.Mixed],
         default: []
     },
     roadmap: {

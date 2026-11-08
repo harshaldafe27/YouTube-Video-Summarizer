@@ -53,8 +53,29 @@ const summaryResponseSchema = {
         },
         resources: {
             type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: '2 to 6 suggested tools, websites, platforms, books, or resource links mentioned by the speaker',
+            description: '2 to 6 specific websites, tools, documentation hubs, GitHub repos, or roadmap links directly relevant to or mentioned in the video, with real HTTPS URLs.',
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    title: {
+                        type: Type.STRING,
+                        description: 'Clear, concise name of the resource or tool (e.g., "Tailwind CSS Official Docs")',
+                    },
+                    url: {
+                        type: Type.STRING,
+                        description: 'Direct, accessible HTTPS URL to the official site, documentation, tool, or repository (e.g., "https://tailwindcss.com")',
+                    },
+                    category: {
+                        type: Type.STRING,
+                        description: 'Category: "Official Docs", "GitHub Repo", "Tool", "Roadmap", "Course", or "Article"',
+                    },
+                    description: {
+                        type: Type.STRING,
+                        description: 'One concise sentence explaining what this resource offers and why it is useful for the video topic',
+                    },
+                },
+                required: ['title', 'url', 'category', 'description'],
+            },
         },
         roadmap: {
             type: Type.ARRAY,
@@ -65,6 +86,36 @@ const summaryResponseSchema = {
     required: ['title', 'overview', 'keyPoints', 'takeaways', 'tips', 'resources', 'roadmap'],
 };
 
+export function normalizeResources(items, videoTitle = '') {
+    if (!Array.isArray(items)) return [];
+    return items.map((item) => {
+        if (typeof item === 'string') {
+            const clean = item.trim();
+            const isUrl = /^https?:\/\//i.test(clean);
+            return {
+                title: clean.replace(/^https?:\/\/(www\.)?/, '').slice(0, 50) || 'Recommended Resource',
+                url: isUrl ? clean : `https://www.google.com/search?q=${encodeURIComponent(clean + ' ' + (videoTitle || 'official'))}`,
+                category: 'Reference',
+                description: `Authoritative online reference and guide for ${videoTitle || 'this topic'}.`,
+            };
+        }
+        if (item && typeof item === 'object') {
+            const rawTitle = item.title?.trim() || 'Resource Link';
+            const rawUrl = item.url?.trim() || '';
+            const validUrl = /^https?:\/\//i.test(rawUrl)
+                ? rawUrl
+                : `https://www.google.com/search?q=${encodeURIComponent(rawTitle + ' official website')}`;
+            return {
+                title: rawTitle,
+                url: validUrl,
+                category: item.category?.trim() || 'Tool',
+                description: item.description?.trim() || `Online tool and reference resource for ${videoTitle || 'the video'}.`,
+            };
+        }
+        return null;
+    }).filter(Boolean);
+}
+
 /**
  * Fast single-pass holistic summarization for transcripts up to 80k characters.
  */
@@ -74,7 +125,7 @@ export async function summarizeTranscriptHolistic({ transcript, videoTitle = '',
         return createFallbackSummary(videoTitle, '');
     }
 
-    const prompt = `You are an expert video content analyst and summarizer.
+    const prompt = `You are an expert video content analyst and researcher.
 Analyze this complete YouTube video transcript and produce a comprehensive, structured summary:
 
 ${videoTitle ? `Video Title: "${videoTitle}"\n` : ''}
@@ -89,7 +140,7 @@ Generate a structured response according to these exact constraints:
 3. keyPoints: 6 to 10 distinct, informative key takeaways/points discussed in the video.
 4. takeaways: 3 to 5 actionable insights or conclusions for the viewer.
 5. tips: 3 to 6 practical tips, pro-tips, tricks, or best practices specifically shared or emphasized by the speaker.
-6. resources: 2 to 6 websites, tools, apps, platforms, books, courses, or reference links mentioned or recommended by the speaker (if not explicitly named, include the primary tools/platforms central to the discussion).
+6. resources: 2 to 6 specific websites, official documentation hubs, developer tools, GitHub repositories, cheat sheets, or roadmap sites mentioned or directly relevant to the video topic. For each resource, provide a real accessible HTTPS URL (e.g. https://...), clear title, category ('Official Docs', 'GitHub Repo', 'Tool', 'Roadmap', 'Course', or 'Article'), and a 1-sentence description explaining what it provides.
 7. roadmap: 3 to 6 sequential roadmap phases, learning steps, or implementation milestones outlined or advised by the speaker.`;
 
     try {
@@ -111,7 +162,7 @@ Generate a structured response according to these exact constraints:
                 keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
                 takeaways: Array.isArray(parsed.takeaways) ? parsed.takeaways : [],
                 tips: Array.isArray(parsed.tips) ? parsed.tips : [],
-                resources: Array.isArray(parsed.resources) ? parsed.resources : [],
+                resources: normalizeResources(parsed.resources, videoTitle),
                 roadmap: Array.isArray(parsed.roadmap) ? parsed.roadmap : [],
             };
         }
@@ -178,7 +229,7 @@ export async function reduceSummarize(chunkSummaries, videoTitle = '', videoCont
         return createFallbackSummary(videoTitle, bullets);
     }
 
-    const prompt = `You are an expert video content summarizer.
+    const prompt = `You are an expert video content summarizer and researcher.
 Produce a comprehensive, insightful summary of this YouTube video based on the following content:
 
 ${videoTitle ? `Video Title: "${videoTitle}"\n\n` : ''}
@@ -191,7 +242,7 @@ Generate:
 3. keyPoints: 6 to 10 distinct, informative key takeaways/points discussed in the video.
 4. takeaways: 3 to 5 actionable insights or conclusions for the viewer.
 5. tips: 3 to 6 practical tips, pro-tips, tricks, or best practices specifically shared or emphasized by the speaker.
-6. resources: 2 to 6 websites, tools, apps, platforms, books, courses, or reference links mentioned or recommended by the speaker.
+6. resources: 2 to 6 specific websites, tools, documentation hubs, GitHub repositories, or roadmap platforms mentioned or relevant. For each resource, provide an accurate HTTPS URL, title, category ('Official Docs', 'GitHub Repo', 'Tool', 'Roadmap', 'Course', or 'Article'), and a 1-sentence description.
 7. roadmap: 3 to 6 sequential roadmap phases, learning steps, or implementation milestones outlined or advised by the speaker.`;
 
     try {
@@ -213,7 +264,7 @@ Generate:
                 keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
                 takeaways: Array.isArray(parsed.takeaways) ? parsed.takeaways : [],
                 tips: Array.isArray(parsed.tips) ? parsed.tips : [],
-                resources: Array.isArray(parsed.resources) ? parsed.resources : [],
+                resources: normalizeResources(parsed.resources, videoTitle),
                 roadmap: Array.isArray(parsed.roadmap) ? parsed.roadmap : [],
             };
         }
@@ -237,7 +288,7 @@ export async function summarizeDirectly({ videoTitle, url, videoId }) {
         const response = await ai.models.generateContent({
             model: 'gemini-3.8-flash',
             contents: `Summarize the YouTube video titled "${videoTitle}" (${url}).
-Provide an accurate, high quality summary including overview, key points, takeaways, speaker tips, suggested resources, and roadmap milestones based on the video content.`,
+Provide an accurate, high quality summary including overview, key points, takeaways, speaker tips, roadmap milestones, and specific websites/tools/resources with direct HTTPS URLs based on the video content.`,
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: summaryResponseSchema,
@@ -253,7 +304,7 @@ Provide an accurate, high quality summary including overview, key points, takeaw
                 keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
                 takeaways: Array.isArray(parsed.takeaways) ? parsed.takeaways : [],
                 tips: Array.isArray(parsed.tips) ? parsed.tips : [],
-                resources: Array.isArray(parsed.resources) ? parsed.resources : [],
+                resources: normalizeResources(parsed.resources, videoTitle),
                 roadmap: Array.isArray(parsed.roadmap) ? parsed.roadmap : [],
             };
         }
@@ -292,9 +343,30 @@ function createFallbackSummary(videoTitle, bullets) {
             'Apply the recommended best practices to avoid common pitfalls.',
         ],
         resources: [
-            'Official documentation and tutorials for the discussed technologies.',
-            'Recommended developer tools, repositories, and learning platforms.',
-            'Community forums and references highlighted in the video.',
+            {
+                title: 'MDN Web Docs & Reference Guides',
+                url: 'https://developer.mozilla.org',
+                category: 'Official Docs',
+                description: 'Comprehensive documentation, API references, and interactive tutorials for web standards.',
+            },
+            {
+                title: 'Roadmap.sh Developer Learning Paths',
+                url: 'https://roadmap.sh',
+                category: 'Roadmap',
+                description: 'Step-by-step visual guides, milestone roadmaps, and curriculum paths for software development.',
+            },
+            {
+                title: 'GitHub Trending & Repositories',
+                url: 'https://github.com/trending',
+                category: 'GitHub Repo',
+                description: 'Explore trending open-source projects, boilerplates, and code implementations related to this topic.',
+            },
+            {
+                title: 'Google Developers & Architecture Guides',
+                url: 'https://developers.google.com',
+                category: 'Tool',
+                description: 'Developer tools, cloud guides, and technical references for modern web and software architecture.',
+            },
         ],
         roadmap: [
             'Step 1: Understand the foundational concepts and requirements.',

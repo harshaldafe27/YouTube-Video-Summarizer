@@ -110,6 +110,8 @@ function ErrorCard({ message, onRetry, onReset }) {
 /** Final summary card */
 function SummaryCard({ summary, title, videoId, onReset, url }) {
   const [copied, setCopied] = useState(false)
+  const [previewResource, setPreviewResource] = useState(null)
+  const [copiedResourceIdx, setCopiedResourceIdx] = useState(null)
 
   const handleCopy = () => {
     const textParts = [
@@ -131,7 +133,10 @@ function SummaryCard({ summary, title, videoId, onReset, url }) {
       ...(summary.resources?.length ? [
         '',
         '=== SUGGESTED RESOURCES & WEBSITES ===',
-        ...summary.resources.map((r) => `🔗 ${r}`),
+        ...summary.resources.map((r) => {
+          if (typeof r === 'string') return `🔗 ${r}`
+          return `🔗 ${r.title || 'Resource'} [${r.category || 'Tool'}]: ${r.url || ''}${r.description ? ` — ${r.description}` : ''}`
+        }),
       ] : []),
       ...(summary.roadmap?.length ? [
         '',
@@ -143,6 +148,15 @@ function SummaryCard({ summary, title, videoId, onReset, url }) {
     navigator.clipboard.writeText(textParts).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  const handleCopyResourceUrl = (e, targetUrl, idx) => {
+    e.stopPropagation()
+    if (!targetUrl) return
+    navigator.clipboard.writeText(targetUrl).then(() => {
+      setCopiedResourceIdx(idx)
+      setTimeout(() => setCopiedResourceIdx(null), 1800)
     })
   }
 
@@ -240,20 +254,85 @@ function SummaryCard({ summary, title, videoId, onReset, url }) {
         {/* Suggested Resources & Websites */}
         {summary.resources?.length > 0 && (
           <section className="summary-section">
-            <h3 className="section-heading">
-              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <circle cx="8" cy="8" r="6.5" stroke="var(--accent)" strokeWidth="1.3"/>
-                <path d="M1.5 8h13M8 1.5a10 10 0 0 1 0 13 10 10 0 0 1 0-13" stroke="var(--accent)" strokeWidth="1.3"/>
-              </svg>
-              Suggested Resources &amp; Websites
-            </h3>
-            <div className="resources-grid">
-              {summary.resources.map((resource, i) => (
-                <div key={i} className="resource-card">
-                  <span className="resource-icon" aria-hidden="true">🔗</span>
-                  <span className="resource-title">{resource}</span>
-                </div>
-              ))}
+            <div className="section-heading-split">
+              <h3 className="section-heading">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <circle cx="8" cy="8" r="6.5" stroke="var(--accent)" strokeWidth="1.3"/>
+                  <path d="M1.5 8h13M8 1.5a10 10 0 0 1 0 13 10 10 0 0 1 0-13" stroke="var(--accent)" strokeWidth="1.3"/>
+                </svg>
+                Suggested Resources &amp; Websites
+              </h3>
+              <span className="section-sub-badge">Attached on YVS</span>
+            </div>
+            <div className="resources-grid-rich">
+              {summary.resources.map((resource, i) => {
+                const item = typeof resource === 'string'
+                  ? {
+                      title: resource,
+                      url: /^https?:\/\//i.test(resource)
+                        ? resource
+                        : `https://www.google.com/search?q=${encodeURIComponent(resource)}`,
+                      category: 'Reference',
+                      description: 'Suggested reference guide and tool mentioned in the video.',
+                    }
+                  : resource
+
+                const isCopied = copiedResourceIdx === i
+                const category = item.category || 'Tool'
+                const isGithub = /github/i.test(category) || /github\.com/i.test(item.url || '')
+                const isDocs = /doc|reference|mdn/i.test(category)
+                const isRoadmap = /roadmap/i.test(category)
+                const icon = isGithub ? '🐙' : isDocs ? '📚' : isRoadmap ? '🗺️' : '🔗'
+
+                return (
+                  <div key={i} className="resource-card-rich">
+                    <div className="resource-card-top">
+                      <span className="resource-category-badge">
+                        <span className="resource-badge-icon">{icon}</span>
+                        {category}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn-resource-copy"
+                        onClick={(e) => handleCopyResourceUrl(e, item.url, i)}
+                        title="Copy direct URL"
+                      >
+                        {isCopied ? 'Copied!' : 'Copy Link'}
+                      </button>
+                    </div>
+
+                    <h4 className="resource-card-title">{item.title}</h4>
+                    {item.description && (
+                      <p className="resource-card-desc">{item.description}</p>
+                    )}
+
+                    <div className="resource-card-actions">
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-resource-launch"
+                        title={`Open ${item.title} in a new tab`}
+                      >
+                        <span>Open Resource</span>
+                        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path d="M11 4v4m0-4H7m4 0L6 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          <rect x="2" y="5" width="8" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                        </svg>
+                      </a>
+
+                      <button
+                        type="button"
+                        className="btn-resource-details"
+                        onClick={() => setPreviewResource(item)}
+                        title="View resource info in YVS"
+                      >
+                        Details
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </section>
         )}
@@ -278,6 +357,63 @@ function SummaryCard({ summary, title, videoId, onReset, url }) {
           </section>
         )}
       </div>
+
+      {/* In-Platform Resource Details Modal */}
+      {previewResource && (
+        <div className="resource-modal-backdrop" onClick={() => setPreviewResource(null)}>
+          <div className="resource-modal-dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="resource-modal-header">
+              <div className="resource-modal-badge">
+                <span>🔗</span> {previewResource.category || 'Resource Guide'}
+              </div>
+              <button
+                type="button"
+                className="resource-modal-close"
+                onClick={() => setPreviewResource(null)}
+                aria-label="Close details"
+              >
+                ✕
+              </button>
+            </div>
+
+            <h3 className="resource-modal-title">{previewResource.title}</h3>
+            {previewResource.description && (
+              <p className="resource-modal-desc">{previewResource.description}</p>
+            )}
+
+            <div className="resource-modal-url-box">
+              <span className="resource-modal-url-label">Direct Destination:</span>
+              <a
+                href={previewResource.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="resource-modal-url-link"
+              >
+                {previewResource.url}
+              </a>
+            </div>
+
+            <div className="resource-modal-actions">
+              <a
+                href={previewResource.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary resource-modal-btn"
+              >
+                Open Official Resource ↗
+              </a>
+              <a
+                href={`https://www.google.com/search?q=${encodeURIComponent((previewResource.title || '') + ' ' + (title || ''))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-ghost resource-modal-btn"
+              >
+                Search Web for Similar 🔍
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="summary-actions-bar">
         <div className="summary-actions-left">
