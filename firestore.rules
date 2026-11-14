@@ -1,0 +1,57 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net — Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidSummary(data) {
+      return data.keys().hasAll(['id', 'videoId', 'url', 'title', 'userId', 'createdAt'])
+        && data.id is string && data.id.size() <= 64
+        && data.videoId is string && data.videoId.size() <= 32
+        && data.url is string && data.url.size() <= 500
+        && data.title is string && data.title.size() <= 300
+        && data.userId is string && data.userId == request.auth.uid;
+    }
+
+    // Per-User Summaries Collection
+    match /users/{userId}/summaries/{summaryId} {
+      allow get: if isOwner(userId) && isValidId(summaryId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && isValidId(summaryId)
+        && isValidSummary(incoming())
+        && incoming().id == summaryId;
+      allow update: if isOwner(userId)
+        && isValidId(summaryId)
+        && isValidSummary(incoming())
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id;
+      allow delete: if isOwner(userId) && isValidId(summaryId);
+    }
+  }
+}

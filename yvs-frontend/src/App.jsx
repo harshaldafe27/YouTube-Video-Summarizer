@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import RecentSummaries, { saveRecentSummary } from './RecentSummaries'
+import { useAuth } from './AuthContext'
+import AuthModal from './AuthModal'
 import './App.css'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -468,6 +470,10 @@ function SummaryCard({ summary, title, videoId, onReset, url }) {
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const { currentUser, signOutUser } = useAuth()
+  const [authModalOpen, setAuthModalOpen] = useState(false)
+  const [authModalMessage, setAuthModalMessage] = useState('')
+
   const [url, setUrl]           = useState('')
   const [inputError, setInputError] = useState('')
 
@@ -506,6 +512,7 @@ export default function App() {
           url: data.url || url,
           title: data.title || (data.summary && data.summary.title),
           summary: data.summary,
+          userId: currentUser?.uid,
         })
       } else if (data.status === 'failed') {
         stopPolling()
@@ -520,7 +527,7 @@ export default function App() {
     } catch {
       // network hiccup — keep polling, don't abort
     }
-  }, [stopPolling, videoId, url])
+  }, [stopPolling, videoId, url, currentUser])
 
   // ── Start polling when jobId is set ─────────────────────────────────────────
   useEffect(() => {
@@ -542,6 +549,13 @@ export default function App() {
     }
     if (!isValidYouTubeUrl(url)) {
       setInputError("That doesn't look like a valid YouTube URL.")
+      return
+    }
+
+    // Authentication Gate: Require login to summarize videos and save history
+    if (!currentUser) {
+      setAuthModalMessage('Please sign in with Google or Email to summarize YouTube videos and access AI roadmap insights.')
+      setAuthModalOpen(true)
       return
     }
 
@@ -575,6 +589,7 @@ export default function App() {
           url: url,
           title: data.title || (data.summary && data.summary.title),
           summary: data.summary,
+          userId: currentUser?.uid,
         })
         return
       }
@@ -589,8 +604,30 @@ export default function App() {
     }
   }
 
+  // ── Input interaction check (pops up auth modal for unauthorized users) ─────
+  const handleInputInteraction = useCallback((e) => {
+    if (!currentUser) {
+      if (e) {
+        if (typeof e.preventDefault === 'function') e.preventDefault()
+        if (typeof e.stopPropagation === 'function') e.stopPropagation()
+        if (e.target && typeof e.target.blur === 'function') {
+          e.target.blur()
+        }
+      }
+      setAuthModalMessage('Sign in with Google or Email to input YouTube video links and generate unlimited summaries.')
+      setAuthModalOpen(true)
+      return true
+    }
+    return false
+  }, [currentUser])
+
   // ── Select a recent summary ────────────────────────────────────────────────
   function handleSelectRecent(item) {
+    if (!currentUser) {
+      setAuthModalMessage('Sign in with Google or Email to view full summaries and roadmaps.')
+      setAuthModalOpen(true)
+      return
+    }
     stopPolling()
     setSummary(item.summary)
     setTitle(item.title || '')
@@ -632,19 +669,62 @@ export default function App() {
     <div className="page">
       {/* Header */}
       <header className="header">
-        <div className="logo-mark">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <defs>
-              <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#fbbf24" />
-                <stop offset="100%" stopColor="#ea580c" />
-              </linearGradient>
-            </defs>
-            <rect x="2" y="5" width="20" height="14" rx="3.5" fill="url(#logo-grad)" />
-            <polygon points="10,8.5 16,12 10,15.5" fill="#ffffff" />
-          </svg>
+        <div className="header-brand">
+          <div className="logo-mark">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#fbbf24" />
+                  <stop offset="100%" stopColor="#ea580c" />
+                </linearGradient>
+              </defs>
+              <rect x="2" y="5" width="20" height="14" rx="3.5" fill="url(#logo-grad)" />
+              <polygon points="10,8.5 16,12 10,15.5" fill="#ffffff" />
+            </svg>
+          </div>
+          <span className="logo-text">YVS</span>
         </div>
-        <span className="logo-text">YVS</span>
+
+        {/* User Auth Bar */}
+        <div className="header-auth">
+          {currentUser ? (
+            <div className="user-profile-pill">
+              <div className="user-avatar" title={currentUser.email || ''}>
+                {currentUser.photoURL ? (
+                  <img src={currentUser.photoURL} alt="" className="user-avatar-img" />
+                ) : (
+                  <span>{(currentUser.displayName || currentUser.email || 'U')[0].toUpperCase()}</span>
+                )}
+              </div>
+              <span className="user-name">
+                {currentUser.displayName || currentUser.email?.split('@')[0]}
+              </span>
+              <button
+                type="button"
+                className="btn-signout"
+                onClick={signOutUser}
+                title="Sign out of your account"
+              >
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn-signin-nav"
+              onClick={() => {
+                setAuthModalMessage('Sign in with Google or Email to summarize videos and save your learning guides.');
+                setAuthModalOpen(true);
+              }}
+            >
+              <svg viewBox="0 0 16 16" fill="none" width="14" height="14" aria-hidden="true">
+                <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.4" />
+                <path d="M2.5 14c0-2.8 2.5-4.5 5.5-4.5s5.5 1.7 5.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+              <span>Sign In</span>
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="main">
@@ -653,7 +733,7 @@ export default function App() {
           <div className="hero-text">
             <h1>YouTube Video Summarizer</h1>
             <p className="subtitle">
-              Paste any YouTube link and get a concise, AI-generated summary in seconds.
+              Paste any YouTube link and get a concise, AI-generated summary with roadmap milestones and web resources.
             </p>
           </div>
         )}
@@ -661,36 +741,95 @@ export default function App() {
         {/* ── IDLE: input form ── */}
         {phase === 'idle' && (
           <form className="card" onSubmit={handleSubmit} noValidate>
-            <label htmlFor="yt-url" className="input-label">Video link</label>
-            <div className={`input-row ${inputError ? 'has-error' : ''}`}>
+            <div className="input-label-row">
+              <label htmlFor="yt-url" className="input-label">Video link</label>
+              {currentUser ? (
+                <span className="auth-access-badge unlimited">
+                  <span className="badge-sparkle">✨</span> Unlimited Access
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="auth-access-badge locked"
+                  onClick={handleInputInteraction}
+                  title="Click to sign in"
+                >
+                  <span>🔒</span> Sign in to unlock
+                </button>
+              )}
+            </div>
+
+            <div
+              className={`input-row ${inputError ? 'has-error' : ''} ${!currentUser ? 'is-locked' : ''}`}
+              onClick={!currentUser ? handleInputInteraction : undefined}
+            >
               <span className="input-icon" aria-hidden="true">
-                <svg viewBox="0 0 20 20" fill="none">
-                  <path d="M12.9 10a2.9 2.9 0 1 1-5.8 0 2.9 2.9 0 0 1 5.8 0Z" stroke="currentColor" strokeWidth="1.4"/>
-                  <path d="M17.5 10c0 4.14-3.36 7.5-7.5 7.5S2.5 14.14 2.5 10 5.86 2.5 10 2.5s7.5 3.36 7.5 7.5Z" stroke="currentColor" strokeWidth="1.4"/>
-                  <path d="M10 2.5v15M2.5 10h15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                </svg>
+                {!currentUser ? (
+                  <span className="input-lock-symbol">🔒</span>
+                ) : (
+                  <svg viewBox="0 0 20 20" fill="none">
+                    <path d="M12.9 10a2.9 2.9 0 1 1-5.8 0 2.9 2.9 0 0 1 5.8 0Z" stroke="currentColor" strokeWidth="1.4"/>
+                    <path d="M17.5 10c0 4.14-3.36 7.5-7.5 7.5S2.5 14.14 2.5 10 5.86 2.5 10 2.5s7.5 3.36 7.5 7.5Z" stroke="currentColor" strokeWidth="1.4"/>
+                    <path d="M10 2.5v15M2.5 10h15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                  </svg>
+                )}
               </span>
               <input
                 id="yt-url"
                 type="url"
-                className="url-input"
-                placeholder="https://www.youtube.com/watch?v=..."
+                className={`url-input ${!currentUser ? 'input-locked' : ''}`}
+                placeholder={currentUser ? "https://www.youtube.com/watch?v=..." : "Sign in to input YouTube video link..."}
                 value={url}
-                onChange={(e) => { setUrl(e.target.value); setInputError('') }}
+                onChange={(e) => {
+                  if (!currentUser) {
+                    handleInputInteraction(e)
+                    return
+                  }
+                  setUrl(e.target.value)
+                  setInputError('')
+                }}
+                onClick={handleInputInteraction}
+                onFocus={handleInputInteraction}
+                onKeyDown={(e) => {
+                  if (!currentUser) {
+                    handleInputInteraction(e)
+                  }
+                }}
+                readOnly={!currentUser}
                 aria-describedby={inputError ? 'url-error' : undefined}
                 autoComplete="off"
                 spellCheck="false"
               />
+              {!currentUser && (
+                <button
+                  type="button"
+                  className="btn-input-sign-in"
+                  onClick={handleInputInteraction}
+                >
+                  Sign In
+                </button>
+              )}
             </div>
             {inputError && (
               <p id="url-error" className="error-msg" role="alert">{inputError}</p>
             )}
-            <button type="submit" className="btn-primary">
-              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path d="M4 10h12M11 5l5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              Generate Summary
-            </button>
+
+            {currentUser ? (
+              <button type="submit" className="btn-primary">
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M4 10h12M11 5l5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Generate Summary (Unlimited)
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-primary btn-locked"
+                onClick={handleInputInteraction}
+              >
+                <span>🔒</span> Sign in to Generate Summary
+              </button>
+            )}
           </form>
         )}
 
@@ -724,6 +863,10 @@ export default function App() {
             <RecentSummaries
               onSelect={handleSelectRecent}
               currentVideoId={videoId}
+              onOpenAuth={() => {
+                setAuthModalMessage('Sign in to sync your summaries across all your devices.');
+                setAuthModalOpen(true);
+              }}
             />
           </>
         )}
@@ -742,6 +885,10 @@ export default function App() {
           <RecentSummaries
             onSelect={handleSelectRecent}
             currentVideoId={videoId}
+            onOpenAuth={() => {
+              setAuthModalMessage('Sign in to sync your summaries across all your devices.');
+              setAuthModalOpen(true);
+            }}
           />
         )}
 
@@ -764,7 +911,7 @@ export default function App() {
               <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M3 8l3 3 7-7" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              No sign-up needed
+              Cloud Synced Library
             </li>
           </ul>
         )}
@@ -773,6 +920,13 @@ export default function App() {
       <footer className="footer">
         <p>YVS · YouTube Video Summarizer</p>
       </footer>
+
+      {/* Authentication Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        message={authModalMessage}
+      />
     </div>
   )
 }

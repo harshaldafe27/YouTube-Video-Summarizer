@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "UserSummary": {
+      "title": "UserSummary",
+      "description": "A video summary saved by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Video ID identifier",
+          "maxLength": 64
+        },
+        "videoId": {
+          "type": "string",
+          "description": "YouTube video ID",
+          "maxLength": 32
+        },
+        "url": {
+          "type": "string",
+          "description": "Canonical YouTube video URL",
+          "maxLength": 500
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the video or summary",
+          "maxLength": 300
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the owner user",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp of last update"
+        }
+      },
+      "required": ["id", "videoId", "url", "title", "userId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/summaries/{summaryId}": {
+      "schema": "UserSummary",
+      "description": "Per-user private collection of video summaries and study guides."
+    }
+  }
+}
